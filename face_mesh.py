@@ -1,57 +1,82 @@
-#@markdown We implemented some functions to visualize the face landmark detection results.
+"""
+face_mesh.py
+
+Visualization of MediaPipe face landmarks on an RGB image.
+
+Kept at project root for backward compatibility.
+
+The original draw_landmarks_on_image() accepted the raw MediaPipe
+landmark objects. This version is adapted to accept the numpy array
+produced by the pipeline (shape: num_faces × num_points × 2, normalized),
+which is what main.py passes after smoothing.
+
+Color scheme (RGB):
+  Eyes / iris  : green / cyan
+  Eyebrows     : yellow
+  Lips         : red
+  Nose         : blue
+  Face oval    : white
+"""
+
 import cv2 as cv
-import mediapipe as mp
-from mediapipe.tasks import python
-from mediapipe.tasks.python import vision
 import numpy as np
-import matplotlib.pyplot as plt
+import mediapipe as mp
+from mediapipe.tasks.python import vision
 
 FLC = vision.FaceLandmarksConnections
 
-# give input in RGB format cause the input frame is also in rgb format.
-green   = (0, 255, 0)
-blue    = (0, 0, 255)
-red     = (255, 0, 0)
-cyan    = (0, 255, 255)
-yellow  = (255, 255, 0)
-white   = (255, 255, 255)
+# RGB colors
+_GREEN  = (0,   255,   0)
+_BLUE   = (0,     0, 255)
+_RED    = (255,   0,   0)
+_CYAN   = (0,   255, 255)
+_YELLOW = (255, 255,   0)
+_WHITE  = (255, 255, 255)
+
+# Connection groups to draw
+_REGIONS = [
+    (FLC.FACE_LANDMARKS_LEFT_EYE   + FLC.FACE_LANDMARKS_RIGHT_EYE,       _GREEN),
+    (FLC.FACE_LANDMARKS_LEFT_IRIS  + FLC.FACE_LANDMARKS_RIGHT_IRIS,       _CYAN),
+    (FLC.FACE_LANDMARKS_LEFT_EYEBROW + FLC.FACE_LANDMARKS_RIGHT_EYEBROW,  _YELLOW),
+    (FLC.FACE_LANDMARKS_LIPS,                                              _RED),
+    (FLC.FACE_LANDMARKS_NOSE,                                              _BLUE),
+    (FLC.FACE_LANDMARKS_FACE_OVAL,                                         _WHITE),
+]
 
 
-def draw_landmarks_on_image(rgb_image, face_landmarks_list):
+def draw_landmarks_on_image(
+    rgb_image:           np.ndarray,
+    face_landmarks_list: np.ndarray,
+) -> np.ndarray:
+    """
+    Draw face mesh connections on an RGB image.
 
-  
-  annotated_image = np.copy(rgb_image)
+    Args:
+        rgb_image          : HxWx3 uint8 RGB image.
+        face_landmarks_list: numpy array (num_faces, num_points, 2),
+                             landmarks in normalized [0, 1] coordinates.
 
-  y_dist = rgb_image.shape[0]
-  x_dist = rgb_image.shape[1]
+    Returns:
+        Annotated copy of rgb_image (RGB uint8).
+    """
+    annotated = np.copy(rgb_image)
+    h, w = rgb_image.shape[:2]
 
-  eyes = FLC.FACE_LANDMARKS_LEFT_EYE + FLC.FACE_LANDMARKS_RIGHT_EYE
-  eye_brows = FLC.FACE_LANDMARKS_LEFT_EYEBROW + FLC.FACE_LANDMARKS_RIGHT_EYEBROW
-  iris = FLC.FACE_LANDMARKS_LEFT_IRIS + FLC.FACE_LANDMARKS_RIGHT_IRIS
+    num_faces  = face_landmarks_list.shape[0]
+    num_points = face_landmarks_list.shape[1]
 
-  regions = [
-    # (FLC.FACE_LANDMARKS_TESSELATION,white),
-    (eyes, green),
-    (iris, cyan),
-    (eye_brows, yellow),
-    (FLC.FACE_LANDMARKS_LIPS, red),
-    (FLC.FACE_LANDMARKS_NOSE, blue),
-    (FLC.FACE_LANDMARKS_FACE_OVAL, white)
-  ]
+    for fi in range(num_faces):
+        face = face_landmarks_list[fi]   # (num_points, 2)
 
-  # Loop through the detected faces to visualize.
-  for face_landmarks in face_landmarks_list:
+        for connections, color in _REGIONS:
+            for pair in connections:
+                s, e = pair.start, pair.end
+                if s >= num_points or e >= num_points:
+                    continue
+                x1 = int(face[s, 0] * w)
+                y1 = int(face[s, 1] * h)
+                x2 = int(face[e, 0] * w)
+                y2 = int(face[e, 1] * h)
+                cv.line(annotated, (x1, y1), (x2, y2), color, 1, cv.LINE_AA)
 
-    # Draw the face landmarks.
-    for connections,color in regions:
-      for pair in connections:
-        if pair.start<len(face_landmarks) and pair.end < len(face_landmarks):
-          pt1 = face_landmarks[pair.start]
-          pt2 = face_landmarks[pair.end]
-          y1 = int(y_dist*pt1[1])
-          x1 = int(x_dist*pt1[0])
-          y2 = int(y_dist*pt2[1])
-          x2 = int(x_dist*pt2[0])
-          cv.line(annotated_image,(x1,y1),(x2,y2),color,1,cv.LINE_AA)
-
-  return annotated_image
+    return annotated

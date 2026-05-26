@@ -1,78 +1,81 @@
-# ----------------------------
-
 # Python
-
-# ----------------------------
 
 **pycache**/
 *.py[cod]
-*.pyo
-*.pyd
-
-# ----------------------------
+*$py.class
+*.so
+.Python
 
 # Virtual Environment
-
-# ----------------------------
 
 .venv/
 venv/
 env/
-
-# ----------------------------
+ENV/
 
 # IDE / Editor
-
-# ----------------------------
 
 .vscode/
 .idea/
 *.swp
 *.swo
 
-# ----------------------------
-
-# OS files
-
-# ----------------------------
+# OS Files
 
 .DS_Store
 Thumbs.db
 
-# ----------------------------
-
 # Logs
 
-# ----------------------------
-
 *.log
+logs/
 
-# ----------------------------
+# Testing / Coverage
 
-# Build / cache
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
 
-# ----------------------------
+# Build / Distribution
 
 build/
 dist/
 *.egg-info/
+.eggs/
 
-# ----------------------------
-
-# Jupyter (if used later)
-
-# ----------------------------
+# Jupyter
 
 .ipynb_checkpoints/
 
-# ----------------------------
+# Environment Variables
 
-# Model / large files (optional)
+.env
+.env.*
 
-# ----------------------------
+# Model checkpoints / large files
 
-# Uncomment if you don't want to push model
+*.pt
+*.pth
+*.ckpt
+*.onnx
 
-# *.task
+# Runtime outputs
 
-# *.tflite
+outputs/generated/
+outputs/temp/
+
+# Temporary files
+
+*.tmp
+*.bak
+*.cache
+
+# MediaPipe / TensorFlow cache
+
+.cache/
+
+# Optional: ignore downloaded datasets
+
+datasets/
+data/
