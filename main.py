@@ -12,10 +12,12 @@ Usage:
     python main.py --no-display --profile   # headless + latency breakdown
     python main.py --legacy-compact         # old text context (debug)
 """
+LATEST_VISION_JSON = None
 
 import argparse
 import json
 import sys
+import os
 
 from camera.capture              import CameraCapture
 from mediapipe_models.loader     import (
@@ -66,6 +68,19 @@ from utils.timing                import FPSCounter, RateGate, PipelineTimer
 
 import cv2 as cv
 import numpy as np
+
+
+def req_vision():
+    global LATEST_VISION_JSON
+
+    if LATEST_VISION_JSON is None:
+        return False
+
+    with open("cv_output.json", "w", encoding="utf-8") as f:
+        f.write(LATEST_VISION_JSON)
+
+    return True
+
 
 
 def parse_args():
@@ -372,6 +387,7 @@ def run(args):
             else:
                 should_emit, emit_reason = emission_ctrl.should_emit(full_state)
 
+            should_emit=True
             if should_emit:
                 changed = emission_ctrl.get_changed_dims(full_state)
                 if args.output == "json":
@@ -394,7 +410,8 @@ def run(args):
                         emit_reason=emit_reason,
                         mode=mode,
                     )
-                print(output)
+                global LATEST_VISION_JSON
+                LATEST_VISION_JSON = output
                 emission_ctrl.mark_emitted(full_state)
 
             if not args.no_display:
