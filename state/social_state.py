@@ -42,13 +42,14 @@ from geometry.math_utils import clamp, linear_map
 
 
 def estimate_social_state(
-    eye_t:  dict,
-    head_t: dict,
-    gaze_t: dict,
-    mouth_t: dict,
-    brow_f: dict,
-    aus:    dict,
-    face_f: dict,
+    eye_t:    dict,
+    head_t:   dict,
+    gaze_t:   dict,
+    mouth_t:  dict,
+    brow_f:   dict,
+    aus:      dict,
+    face_f:   dict,
+    baseline: "PersonalBaselineTracker | None" = None,
 ) -> dict:
     """
     Fuse all temporal feature streams into a social state estimate.
@@ -180,16 +181,28 @@ def estimate_social_state(
     # STRESS HINTS
     # Brow tension, lip tension, blink rate elevation, gaze instability
     # ══════════════════════════════════════════════════════════════════════════
-    # Normalised blink rate: resting ~15 bpm; stressed ~25+ bpm
-    blink_stress = clamp(linear_map(blink_rate, 15.0, 30.0), 0.0, 1.0)
+    if baseline is not None and baseline.is_active():
+        blink_stress = baseline.elevated(blink_rate, "blink_rate")
+        brow_stress  = baseline.elevated(brow_tension_b, "brow_tension")
+        face_stress  = baseline.elevated(facial_tension, "facial_tension")
+        lip_stress   = baseline.elevated(tension, "lip_tension")
+        gaze_stress  = baseline.elevated(gaze_volatility, "gaze_volatility")
+        au4_stress   = baseline.elevated(au4, "AU4")
+    else:
+        blink_stress = clamp(linear_map(blink_rate, 15.0, 30.0), 0.0, 1.0)
+        brow_stress  = brow_tension_b
+        face_stress  = facial_tension
+        lip_stress   = tension
+        gaze_stress  = clamp(gaze_volatility, 0.0, 1.0)
+        au4_stress   = au4
 
     stress_raw = (
-        0.25 * brow_tension_b
-      + 0.20 * facial_tension
-      + 0.15 * tension
+        0.25 * brow_stress
+      + 0.20 * face_stress
+      + 0.15 * lip_stress
       + 0.15 * blink_stress
-      + 0.10 * clamp(gaze_volatility, 0.0, 1.0)
-      + 0.10 * clamp(tension_trend * 50.0, 0.0, 1.0)   # rising tension
+      + 0.10 * gaze_stress
+      + 0.10 * clamp(tension_trend * 50.0, 0.0, 1.0)
       + 0.05 * brow_asym
     )
     stress = clamp(stress_raw, 0.0, 1.0)
@@ -199,15 +212,16 @@ def estimate_social_state(
     # Low blink rate (>25 bpm or <8 bpm can both indicate fatigue),
     # prolonged eye closure, yawning, low arousal expression
     # ══════════════════════════════════════════════════════════════════════════
-    # Very high OR very low blink rate → fatigue
-    blink_fatigue = 0.0
-    if blink_rate > 25.0:
-        blink_fatigue = clamp(linear_map(blink_rate, 25.0, 40.0), 0.0, 1.0)
-    elif 0 < blink_rate < 8.0:
-        blink_fatigue = clamp(linear_map(blink_rate, 8.0, 2.0), 0.0, 1.0)
-
-    # Low EAR without blink = drooping lids
-    lid_droop = clamp(linear_map(avg_ear, 0.28, 0.18), 0.0, 1.0) if avg_ear > 0 else 0.0
+    if baseline is not None and baseline.is_active():
+        blink_fatigue = baseline.blink_rate_abnormal(blink_rate)
+        lid_droop     = baseline.ear_droop(avg_ear)
+    else:
+        blink_fatigue = 0.0
+        if blink_rate > 25.0:
+            blink_fatigue = clamp(linear_map(blink_rate, 25.0, 40.0), 0.0, 1.0)
+        elif 0 < blink_rate < 8.0:
+            blink_fatigue = clamp(linear_map(blink_rate, 8.0, 2.0), 0.0, 1.0)
+        lid_droop = clamp(linear_map(avg_ear, 0.28, 0.18), 0.0, 1.0) if avg_ear > 0 else 0.0
 
     fatigue_raw = (
         0.30 * float(yawning)
@@ -238,11 +252,20 @@ def estimate_social_state(
     # Gaze aversion, brow furrowing, lip tension, shifted posture
     # ══════════════════════════════════════════════════════════════════════════
     gaze_aversion = clamp(1.0 - gaze_attn, 0.0, 1.0)
+    if baseline is not None and baseline.is_active():
+        brow_disc = baseline.elevated(brow_tension_b, "brow_tension")
+        au4_disc  = baseline.elevated(au4, "AU4")
+        lip_disc  = baseline.elevated(tension, "lip_tension")
+    else:
+        brow_disc = brow_tension_b
+        au4_disc  = au4
+        lip_disc  = tension
+
     discomfort_raw = (
         0.25 * gaze_aversion * float(gaze_pattern == "avoidant")
-      + 0.20 * brow_tension_b
-      + 0.20 * au4
-      + 0.15 * tension
+      + 0.20 * brow_disc
+      + 0.20 * au4_disc
+      + 0.15 * lip_disc
       + 0.10 * au15
       + 0.10 * (1.0 - head_attn)
     )
