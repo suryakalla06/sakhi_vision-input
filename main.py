@@ -348,6 +348,11 @@ def run(args):
                     "body":                 body_f,
                     "hands":                hand_f,
                     "eye_contact_rate":     gaze_t.get("eye_contact_rate", 0.0),
+                    # gaze detail for the emotion-display layer (additive; computed in gaze_features)
+                    "gaze_x":               gaze_f.get("avg_gaze_x", 0.0),
+                    "gaze_y":               gaze_f.get("avg_gaze_y", 0.0),
+                    "gaze_direction":       gaze_f.get("gaze_direction", "unknown"),
+                    "eye_contact_score":    gaze_f.get("eye_contact_score", 0.0),
                     "blink_rate":           eye_t.get("blink_rate", 0.0),
                     "fidget_probability":   body_t.get("fidget_probability", 0.0),
                     "gesture_frequency":    hand_t.get("gesture_frequency", 0.0),

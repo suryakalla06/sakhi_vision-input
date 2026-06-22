@@ -176,6 +176,16 @@ def format_vision_v1(
             "prolonged_downward_gaze":  bool(state.get("prolonged_downward_gaze", False)),
         },
 
+        # gaze detail for the emotion-display layer. Additive block — existing consumers
+        # (fusion/memory) can ignore it; the robot face uses it for look-back + reflex intensity.
+        # gaze_x/gaze_y use the same convention as the face renderer's pupilX/pupilY.
+        "gaze": {
+            "gaze_x":            _round3(state.get("gaze_x", 0.0)),          # -1 left .. +1 right
+            "gaze_y":            _round3(state.get("gaze_y", 0.0)),          # -1 up .. +1 down
+            "gaze_direction":    state.get("gaze_direction", "unknown"),     # center|left|right|up|down
+            "eye_contact_score": _round3(state.get("eye_contact_score", 0.0)),  # 0..1 strength
+        },
+
         "uncertainty": {
             "global":             _round3(state.get("global_uncertainty", 0.0)),
             "sensor_confidence":  _round3(
