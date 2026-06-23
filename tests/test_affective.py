@@ -212,7 +212,7 @@ def test_affective_gru():
           abs(out_fresh["gru_valence"] - out2["gru_valence"]) > 0.0 or
           abs(out_fresh["gru_arousal"] - out2["gru_arousal"]) > 0.0)
 
-    # Happy signal → eventually positive GRU valence
+    # Happy signal → eventually positive GRU valence (regression: smile must NOT read negative)
     gru2 = AffectiveGRU()
     happy_aff = extract_affective_embedding_happy()
     ts2 = NOW_MS
@@ -220,6 +220,20 @@ def test_affective_gru():
         g2 = gru2.update(happy_aff, ts2); ts2 += 33
     check("sustained smile → coherent emotional state",
           0.0 <= g2["temporal_coherence"] <= 1.0)
+    check("sustained smile → POSITIVE gru_valence", g2["gru_valence"] > 0.3,
+          f"gru_valence={g2['gru_valence']} (smile must be positive)")
+    check("gru_valence tracks geometric valence (sign-correct)",
+          abs(g2["gru_valence"] - happy_aff["valence_geom"]) < 0.05,
+          f"gru={g2['gru_valence']} vs geom={happy_aff['valence_geom']}")
+
+    # Sad/frown signal → negative GRU valence
+    gru3 = AffectiveGRU()
+    sad_aff = extract_affective_embedding_sad()
+    ts3 = NOW_MS
+    for _ in range(60):
+        g3 = gru3.update(sad_aff, ts3); ts3 += 33
+    check("sustained frown → NEGATIVE gru_valence", g3["gru_valence"] < 0.0,
+          f"gru_valence={g3['gru_valence']} (frown must be negative)")
 
     # Invalid embedding → no crash
     bad_emb = {"embedding": [0.0] * 48}
@@ -240,6 +254,19 @@ def extract_affective_embedding_happy():
         fake_mouth_f(smile=0.9),
         fake_brow_f(raise_=0.4, tension=0.0),
         fake_head_t(pitch=0.0, stability=1.0, attn=1.0)
+    )
+
+
+def extract_affective_embedding_sad():
+    from features.affective_embedding import extract_affective_embedding
+    aus = fake_aus(smile=0.0, au4=0.7, au6=0.0)
+    aus["AU15"] = 0.6   # lip corner depressor → sadness
+    return extract_affective_embedding(
+        aus,
+        fake_eye_f(ear=0.26),
+        fake_mouth_f(smile=0.0),
+        fake_brow_f(raise_=0.0, tension=0.6),
+        fake_head_t(pitch=-10.0, stability=0.9, attn=0.6)
     )
 
 

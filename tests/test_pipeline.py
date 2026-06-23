@@ -198,6 +198,25 @@ def test_gaze_features():
     check("gaze_y in [-1,1]",       -1.0 <= r["avg_gaze_y"] <= 1.0)
     check("eye_contact [0,1]",      0.0 <= r["eye_contact_score"] <= 1.0)
 
+    # --- eye-contact scoring: centered gaze (even with the typical vertical lid bias)
+    #     must read high; averted gaze must read low. ---
+    def _iris_face(lx, ly, rx, ry):
+        f = np.zeros((1, 478, 3))
+        lo, li, lt, lb = (0.30, 0.48), (0.40, 0.48), (0.35, 0.45), (0.35, 0.50)
+        f[0, 33, :2] = lo; f[0, 133, :2] = li; f[0, 159, :2] = lt; f[0, 145, :2] = lb
+        f[0, 468, :2] = (lo[0] + (li[0] - lo[0]) * lx, lt[1] + (lb[1] - lt[1]) * ly)
+        ro, ri, rt, rb = (0.70, 0.48), (0.60, 0.48), (0.65, 0.45), (0.65, 0.50)
+        f[0, 263, :2] = ro; f[0, 362, :2] = ri; f[0, 386, :2] = rt; f[0, 374, :2] = rb
+        f[0, 473, :2] = (ro[0] + (ri[0] - ro[0]) * rx, rt[1] + (rb[1] - rt[1]) * ry)
+        return f
+
+    centered = extract_gaze_features(_iris_face(0.5, 0.40, 0.5, 0.40))  # iris a touch high (lid bias)
+    check("centered gaze → high eye_contact", centered["eye_contact_score"] > 0.8,
+          f"score={centered['eye_contact_score']}")
+    look_right = extract_gaze_features(_iris_face(1.0, 0.5, 0.0, 0.5))
+    check("averted gaze → low eye_contact", look_right["eye_contact_score"] < 0.4,
+          f"score={look_right['eye_contact_score']}")
+
 
 def test_mouth_features():
     print("\n[features/mouth_features]")

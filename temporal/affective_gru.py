@@ -5,26 +5,20 @@ Lightweight temporal emotional modeling using a pure-numpy GRU.
 
 The GRU runs on the 48-dim affective embedding (from features/affective_embedding.py)
 and maintains a 32-dim hidden state that represents the running emotional
-memory of the interaction.
+memory of the interaction. The hidden state drives the temporal metrics
+(emotional_momentum, temporal_coherence, hidden_norm).
 
-From the hidden state we derive:
-  - Smoothed valence/arousal/dominance (more stable than per-frame)
-  - Emotional trajectory (direction of change)
-  - Temporal coherence (how consistent the emotional signal is)
+Valence/arousal/dominance are NOT read from the (untrained) hidden state — a
+random projection would not preserve the sign of the affect (a smile could read
+as negative valence). Instead they are a temporally-smoothed copy of the
+geometry-based affect that features/affective_embedding.py already computes
+(valence_geom / arousal_geom / dominance_geom), which is sign-correct by
+construction (AU12/AU6 → positive, AU4/AU15 → negative).
 
-Why a GRU instead of EMA:
-  - GRU has gating: can quickly update when signals are strong,
-    resist noise when signals are ambiguous
-  - Hidden state = implicit emotional memory (persists across frames)
-  - More expressive than single alpha EMA, far lighter than LSTM/Transformer
-
-The weights are analytically initialized (not trained) using structured
-random projections that preserve affective structure:
-  - Input gate initialized to emphasize AU dimensions
-  - Reset gate initialized to resist noise (sparse reset)
-  - Update gate initialized conservatively (slow update by default)
-
-This gives sensible behavior out-of-the-box without any training data.
+The smoothing is gated by the hidden-state momentum: when the emotional signal
+is moving fast we track it quickly; when it is stable we resist per-frame noise.
+That keeps the "GRU gating" behaviour (fast update on strong change, smooth when
+ambiguous) while guaranteeing the output sign matches the expression.
 
 Design: all state in AffectiveGRU. No I/O. Pure numpy. ~0.1ms per frame.
 """
@@ -35,6 +29,7 @@ from geometry.math_utils import clamp
 _INPUT_DIM  = 48    # embedding dimension
 _HIDDEN_DIM = 32    # GRU hidden state size
 _SEED       = 42    # deterministic initialization
+_AFFECT_ALPHA_BASE = 0.3   # min EMA rate for V/A/D (rises toward 1.0 with momentum)
 
 
 class AffectiveGRU:
@@ -77,10 +72,15 @@ class AffectiveGRU:
         self.Uh = rng.normal(0, scale_u, (hidden_dim, hidden_dim))
         self.bh = np.zeros(hidden_dim)
 
-        # Readout: project hidden → [valence, arousal, dominance, coherence]
-        # Initialize readout to align with known AU→VA mappings
-        self.W_out = rng.normal(0, 0.1, (4, hidden_dim))
-        self.b_out = np.array([0.0, 0.3, 0.5, 0.7])  # biases: neutral VA, mid D, high coherence
+        # Readout: project hidden → coherence (a stability scalar). V/A/D are NOT read
+        # from here — see module docstring; they come from the geometric affect below.
+        self.W_out = rng.normal(0, 0.1, (1, hidden_dim))
+        self.b_out = np.array([0.7])   # bias toward high coherence
+
+        # Smoothed affect (sign-correct, geometry-anchored). Neutral start.
+        self._v: float = 0.0   # valence   [-1, 1]
+        self._a: float = 0.0   # arousal   [ 0, 1]
+        self._d: float = 0.5   # dominance [ 0, 1]
 
         # Tracking
         self._prev_h: np.ndarray = np.zeros(hidden_dim)
@@ -119,16 +119,28 @@ class AffectiveGRU:
         h_tilde = np.tanh(self.Wh @ x + self.Uh @ (r * self.h) + self.bh)
         self.h  = (1.0 - z) * self.h + z * h_tilde                 # new hidden state
 
-        # ── Readout ───────────────────────────────────────────────────────────
-        out      = self.W_out @ self.h + self.b_out   # (4,)
-        valence  = float(np.tanh(out[0]))             # [-1, 1]
-        arousal  = float(_sigmoid_scalar(out[1]))     # [0, 1]
-        dominance= float(_sigmoid_scalar(out[2]))     # [0, 1]
-        coherence= float(_sigmoid_scalar(out[3]))     # [0, 1]
-
         # ── Emotional momentum (hidden state change rate) ─────────────────────
         delta    = float(np.linalg.norm(self.h - prev_h))
         momentum = clamp(delta / 0.5, 0.0, 1.0)   # normalize
+
+        # ── Affect readout: gated EMA of the geometry-based affect ────────────
+        # Sign-correct by construction (see module docstring). The smoothing rate
+        # rises with hidden-state momentum: track fast on strong change, resist
+        # per-frame noise when the signal is stable.
+        v_geom = clamp(float(embedding_dict.get("valence_geom",   0.0)), -1.0, 1.0)
+        a_geom = clamp(float(embedding_dict.get("arousal_geom",   0.0)),  0.0, 1.0)
+        d_geom = clamp(float(embedding_dict.get("dominance_geom", 0.5)),  0.0, 1.0)
+
+        alpha   = _AFFECT_ALPHA_BASE + (1.0 - _AFFECT_ALPHA_BASE) * momentum
+        self._v += alpha * (v_geom - self._v)
+        self._a += alpha * (a_geom - self._a)
+        self._d += alpha * (d_geom - self._d)
+        valence   = clamp(self._v, -1.0, 1.0)
+        arousal   = clamp(self._a,  0.0, 1.0)
+        dominance = clamp(self._d,  0.0, 1.0)
+
+        # ── Coherence (stability of the emotional signal) ─────────────────────
+        coherence = _sigmoid_scalar(float((self.W_out @ self.h + self.b_out)[0]))
 
         # ── Hidden state norm (overall activation level) ──────────────────────
         h_norm = float(np.linalg.norm(self.h)) / np.sqrt(self.h_dim)
@@ -152,8 +164,9 @@ class AffectiveGRU:
         }
 
     def reset(self) -> None:
-        """Clear hidden state (call when face is lost)."""
+        """Clear hidden state and smoothed affect (call when face is lost)."""
         self.h = np.zeros(self.h_dim, dtype=np.float64)
+        self._v, self._a, self._d = 0.0, 0.0, 0.5
         self._frame_count = 0
 
 

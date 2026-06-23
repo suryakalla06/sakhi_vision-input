@@ -42,6 +42,15 @@ from landmarks.indices import (
 _GAZE_THRESH_H = 0.20   # |gaze_x| > this → left or right
 _GAZE_THRESH_V = 0.20   # |gaze_y| > this → up or down
 
+# Eye-contact scoring (tunable against a real camera)
+# Vertical gaze from lid landmarks is biased and noisier than horizontal (the iris center
+# sits nearer the upper lid), so weight it down. A small deadzone treats a roughly centered
+# gaze as full contact, and a realistic full-scale (irises rarely reach the anatomical corner
+# during normal looking-around) keeps the score from collapsing on minor jitter.
+_EC_VERT_WEIGHT = 0.5    # vertical gaze contribution relative to horizontal
+_EC_DEADZONE    = 0.12   # |gaze| within this → eye_contact = 1.0
+_EC_FULLSCALE   = 0.55   # |gaze| at/above this → eye_contact = 0.0
+
 
 def _iris_gaze(
     face:        np.ndarray,
@@ -159,13 +168,14 @@ def extract_gaze_features(
     avg_y = (lgy + rgy) / 2.0
 
     # --- Eye contact score ---
-    # Both irises centered → score 1.0.
-    # Distance from center in gaze space.
-    dist_l = (lgx ** 2 + lgy ** 2) ** 0.5
-    dist_r = (rgx ** 2 + rgy ** 2) ** 0.5
-    avg_dist = (dist_l + dist_r) / 2.0
-    # Max possible distance in [-1,1]^2 is sqrt(2) ≈ 1.414
-    eye_contact = clamp(1.0 - avg_dist / 1.414, 0.0, 1.0)
+    # Centered gaze → 1.0. Measured from the averaged (both-eye) gaze, which is more stable
+    # than per-eye, with vertical down-weighted plus a deadzone + realistic full-scale so a
+    # normal centered gaze reads ~1.0 despite the vertical lid bias. See constants above.
+    mag = (avg_x ** 2 + (_EC_VERT_WEIGHT * avg_y) ** 2) ** 0.5
+    eye_contact = clamp(
+        1.0 - (mag - _EC_DEADZONE) / (_EC_FULLSCALE - _EC_DEADZONE),
+        0.0, 1.0,
+    )
 
     asymmetry = abs(lgx - rgx)
 
